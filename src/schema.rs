@@ -2,11 +2,14 @@ use std::{
     any::Any,
     collections::{HashMap, HashSet},
     ops::Deref,
+    pin::Pin,
     sync::Arc,
 };
 
 use async_graphql_parser::types::ExecutableDocument;
+use futures_util::pin_mut;
 use futures_util::stream::{self, BoxStream, FuturesOrdered, Stream, StreamExt};
+use futures_util::future::FutureExt;
 
 use crate::{
     BatchRequest, BatchResponse, CacheControl, ContextBase, EmptyMutation, EmptySubscription,
@@ -518,7 +521,7 @@ where
     pub async fn execute(&self, request: impl Into<Request>) -> Response {
         let request = request.into();
         let extensions = self.create_extensions(Default::default());
-        let request_fut = {
+        let request_fut = Box::pin({
             let extensions = extensions.clone();
             async move {
                 match prepare_request(
@@ -550,9 +553,8 @@ where
                     Err(errors) => Response::from_errors(errors),
                 }
             }
-        };
-        futures_util::pin_mut!(request_fut);
-        extensions.request(&mut request_fut).await
+        });
+        extensions.request(&mut *request_fut).await
     }
 
     /// Execute a GraphQL batch query.
@@ -574,12 +576,12 @@ where
         &self,
         request: impl Into<Request>,
         session_data: Arc<Data>,
-    ) -> impl Stream<Item = Response> + Send + Unpin + 'static {
+    ) -> Pin<Box<dyn Stream<Item = Response> + Send + 'static>> {
         let schema = self.clone();
         let request = request.into();
         let extensions = self.create_extensions(session_data.clone());
 
-        let stream = futures_util::stream::StreamExt::boxed({
+        let stream = Box::pin(async_stream::stream! {
             let extensions = extensions.clone();
             let env = self.0.env.clone();
             async_stream::stream! {
@@ -638,14 +640,14 @@ where
                 }
             }
         });
-        extensions.subscribe(stream)
+        extensions.subscribe(stream).boxed()
     }
 
     /// Execute a GraphQL subscription.
     pub fn execute_stream(
         &self,
         request: impl Into<Request>,
-    ) -> impl Stream<Item = Response> + Send + Unpin {
+    ) -> Pin<Box<dyn Stream<Item = Response> + Send + 'static>> {
         self.execute_stream_with_session_data(request, Default::default())
     }
 }
@@ -665,9 +667,8 @@ where
         &self,
         request: Request,
         session_data: Option<Arc<Data>>,
-    ) -> BoxStream<'static, Response> {
+    ) -> Pin<Box<dyn Stream<Item = Response> + Send + 'static>> {
         Schema::execute_stream_with_session_data(&self, request, session_data.unwrap_or_default())
-            .boxed()
     }
 }
 
@@ -847,7 +848,7 @@ pub(crate) async fn prepare_request(
     let mut document = {
         let query = &request.query;
         let parsed_doc = request.parsed_query.take();
-        let fut_parse = async move {
+        let fut_parse = Box::pin(async move {
             let doc = match parsed_doc {
                 Some(parsed_doc) => parsed_doc,
                 None => parse_query(query)?,
@@ -857,16 +858,15 @@ pub(crate) async fn prepare_request(
                 check_max_directives(&doc, max_directives)?;
             }
             Ok(doc)
-        };
-        futures_util::pin_mut!(fut_parse);
+        });
         extensions
-            .parse_query(query, &request.variables, &mut fut_parse)
+            .parse_query(query, &request.variables, &mut *fut_parse)
             .await?
     };
 
     // check rules
     let validation_result = {
-        let validation_fut = async {
+        let validation_fut = Box::pin(async {
             check_rules(
                 registry,
                 &document,
@@ -875,9 +875,8 @@ pub(crate) async fn prepare_request(
                 complexity,
                 depth,
             )
-        };
-        futures_util::pin_mut!(validation_fut);
-        extensions.validation(&mut validation_fut).await?
+        });
+        extensions.validation(&mut *validation_fut).await?
     };
 
     let operation = if let Some(operation_name) = &request.operation_name {

@@ -2,6 +2,7 @@ use crate::{
     ContextSelectionSet, OutputType, Positioned, ServerResult, Value, extensions::ResolveInfo,
     parser::types::Field,
 };
+use futures_util::pin_mut;
 
 /// Resolve an list by executing each of the items concurrently.
 pub async fn resolve_list<'a, T: OutputType + 'a>(

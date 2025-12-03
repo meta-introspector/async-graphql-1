@@ -1,6 +1,7 @@
 use std::{future::Future, pin::Pin, sync::Arc};
 
 use futures_util::FutureExt;
+use futures_util::pin_mut;
 use indexmap::IndexMap;
 
 use crate::{
@@ -271,14 +272,13 @@ impl<'a> Fields<'a> {
                                     field: &field.node,
                                 };
 
-                                let resolve_fut = root.resolve_field(&ctx_field);
+                                let resolve_fut = Box::pin(root.resolve_field(&ctx_field));
 
                                 if field.node.directives.is_empty() {
-                                    futures_util::pin_mut!(resolve_fut);
                                     Ok((
                                         field_name,
                                         extensions
-                                            .resolve(resolve_info, &mut resolve_fut)
+                                            .resolve(resolve_info, resolve_fut.as_mut())
                                             .await?
                                             .unwrap_or_default(),
                                     ))

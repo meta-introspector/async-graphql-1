@@ -17,6 +17,7 @@ mod websocket;
 #[cfg(feature = "altair")]
 pub use altair_source::*;
 use futures_util::io::{AsyncRead, AsyncReadExt};
+use futures_util::pin_mut;
 #[cfg(feature = "graphiql")]
 pub use graphiql_plugin::{GraphiQLPlugin, graphiql_plugin_explorer};
 #[cfg(feature = "graphiql")]
@@ -133,12 +134,12 @@ pub(super) async fn receive_batch_body_no_multipart(
     }
 }
 /// Receive a GraphQL request from a body as JSON.
-pub async fn receive_json(body: impl AsyncRead) -> Result<Request, ParseRequestError> {
+pub async fn receive_json(body: impl AsyncRead + Unpin) -> Result<Request, ParseRequestError> {
     receive_batch_json(body).await?.into_single()
 }
 
 /// Receive a GraphQL batch request from a body as JSON.
-pub async fn receive_batch_json(body: impl AsyncRead) -> Result<BatchRequest, ParseRequestError> {
+pub async fn receive_batch_json(body: impl AsyncRead + Unpin) -> Result<BatchRequest, ParseRequestError> {
     let mut data = Vec::new();
     futures_util::pin_mut!(body);
     body.read_to_end(&mut data)
@@ -151,14 +152,14 @@ pub async fn receive_batch_json(body: impl AsyncRead) -> Result<BatchRequest, Pa
 /// Receive a GraphQL request from a body as CBOR.
 #[cfg(feature = "cbor")]
 #[cfg_attr(docsrs, doc(cfg(feature = "cbor")))]
-pub async fn receive_cbor(body: impl AsyncRead) -> Result<Request, ParseRequestError> {
+pub async fn receive_cbor(body: impl AsyncRead + Unpin) -> Result<BatchRequest, ParseRequestError> {
     receive_batch_cbor(body).await?.into_single()
 }
 
 /// Receive a GraphQL batch request from a body as CBOR
 #[cfg(feature = "cbor")]
 #[cfg_attr(docsrs, doc(cfg(feature = "cbor")))]
-pub async fn receive_batch_cbor(body: impl AsyncRead) -> Result<BatchRequest, ParseRequestError> {
+pub async fn receive_batch_cbor(body: impl AsyncRead + Unpin) -> Result<BatchRequest, ParseRequestError> {
     let mut data = Vec::new();
     futures_util::pin_mut!(body);
     body.read_to_end(&mut data)

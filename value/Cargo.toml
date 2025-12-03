@@ -15,7 +15,7 @@ categories = ["network-programming", "asynchronous"]
 serde_json.workspace = true
 serde.workspace = true
 bytes.workspace = true
-indexmap.workspace = true
+indexmap = { workspace = true, features = ["serde"] }
 
 [features]
 raw_value = ["serde_json/raw_value"]
